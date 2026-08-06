@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 from datetime import timedelta
 from pathlib import Path
 
@@ -124,17 +125,25 @@ def build_transcript(json_path: Path) -> str:
     return "\n\n".join(lines)
 
 
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+
+
 def summarize_with_ollama(transcript: str) -> str:
     prompt = SUMMARY_PROMPT.format(transcript=transcript)
     print(f"Sending transcript to ollama ({OLLAMA_MODEL}) for summarization ...")
-    result = subprocess.run(
-        ["ollama", "run", OLLAMA_MODEL],
-        input=prompt,
-        capture_output=True,
-        text=True,
-        check=True,
+    payload = json.dumps({
+        "model": OLLAMA_MODEL,
+        "prompt": prompt,
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
     )
-    return result.stdout.strip()
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read())
+    return data["response"].strip()
 
 
 def save_outputs(audio: Path, transcript: str, summary: str) -> tuple[Path, Path]:
