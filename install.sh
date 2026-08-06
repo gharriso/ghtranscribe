@@ -20,6 +20,13 @@ else
     echo "ffmpeg already installed: $(command -v ffmpeg)"
 fi
 
+echo "==> Checking pandoc"
+if ! command -v pandoc >/dev/null 2>&1; then
+    brew install pandoc
+else
+    echo "pandoc already installed: $(command -v pandoc)"
+fi
+
 echo "==> Checking Ollama"
 if ! command -v ollama >/dev/null 2>&1; then
     brew install ollama

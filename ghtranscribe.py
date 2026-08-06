@@ -155,7 +155,18 @@ def save_outputs(audio: Path, transcript: str, summary: str) -> tuple[Path, Path
     return transcript_path, summary_path
 
 
-def create_apple_note(title: str, summary: str) -> None:
+def markdown_to_html(text: str) -> str:
+    result = subprocess.run(
+        ["pandoc", "-f", "gfm", "-t", "html"],
+        input=text,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def create_apple_note(title: str, summary_markdown: str) -> None:
     script = """
     on run argv
         set theTitle to item 1 of argv
@@ -167,9 +178,7 @@ def create_apple_note(title: str, summary: str) -> None:
         end tell
     end run
     """
-    html_body = (
-        f"<b>{title}</b><br><br>" + summary.replace("\n", "<br>")
-    )
+    html_body = f"<b>{title}</b><br><br>" + markdown_to_html(summary_markdown)
     subprocess.run(
         ["osascript", "-e", script, title, html_body],
         check=True,

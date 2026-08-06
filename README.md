@@ -11,7 +11,8 @@ folder.
    flagging.
 3. The transcript and summary are written next to the source recording as
    `<name>_transcript.txt` and `<name>_summary.txt`.
-4. The summary is saved as a new Apple Note.
+4. The summary (converted from Markdown to HTML via `pandoc`) is saved as a
+   new, richly formatted Apple Note.
 
 Speaker diarization is not wired up yet -- whisperx's diarization step
 (pyannote) is too slow on CPU for this to be practical right now. That's
