@@ -44,7 +44,7 @@ def _default_whisperx_bin() -> str:
 
 
 WHISPERX_BIN = os.environ.get("WHISPERX_BIN", _default_whisperx_bin())
-WHISPER_MODEL = os.environ.get("WHISPERX_MODEL", "medium")
+WHISPER_MODEL = os.environ.get("WHISPERX_MODEL", "large-v3")
 OLLAMA_MODEL = os.environ.get("GHTRANSCRIBE_OLLAMA_MODEL", "gpt-oss:latest")
 
 SUMMARY_PROMPT = (
