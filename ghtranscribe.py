@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from datetime import timedelta
 from pathlib import Path
@@ -82,6 +83,17 @@ def resolve_audio_arg(arg: str) -> Path:
     sys.exit(f"Could not find recording '{arg}' (checked as given, and under {JPR_DIR})")
 
 
+def ensure_downloaded(audio: Path) -> None:
+    """Force iCloud Drive to materialize the file locally.
+
+    Just Press Record recordings live on iCloud Drive and can still be
+    cloud-only placeholders. Reading such a file with ffmpeg (as whisperx
+    does) can fail with "Resource deadlock avoided" instead of triggering
+    a download the way Finder/NSFileCoordinator would.
+    """
+    subprocess.run(["brctl", "download", str(audio)], check=False)
+
+
 def run_whisperx(audio: Path, out_dir: Path) -> Path:
     env = os.environ.copy()
     env["DYLD_FALLBACK_LIBRARY_PATH"] = (
@@ -94,11 +106,23 @@ def run_whisperx(audio: Path, out_dir: Path) -> Path:
         str(audio),
         "--model", WHISPER_MODEL,
         "--device", "cpu",
+        "--compute_type", "float32",
         "--output_dir", str(out_dir),
         "--output_format", "json",
     ]
-    print(f"Running whisperx on {audio.name} (model={WHISPER_MODEL}) ...")
-    subprocess.run(cmd, env=env, check=True)
+
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        ensure_downloaded(audio)
+        print(f"Running whisperx on {audio.name} (model={WHISPER_MODEL}, attempt {attempt}/{attempts}) ...")
+        result = subprocess.run(cmd, env=env)
+        if result.returncode == 0:
+            break
+        if attempt == attempts:
+            result.check_returncode()
+        wait = 15 * attempt
+        print(f"whisperx failed (likely still downloading from iCloud); retrying in {wait}s ...")
+        time.sleep(wait)
 
     json_path = out_dir / f"{audio.stem}.json"
     if not json_path.exists():
@@ -146,10 +170,15 @@ def summarize_with_ollama(transcript: str) -> str:
     return data["response"].strip()
 
 
-def save_outputs(audio: Path, transcript: str, summary: str) -> tuple[Path, Path]:
+def output_paths(audio: Path) -> tuple[Path, Path]:
     base = audio.with_suffix("")
     transcript_path = base.with_name(base.name + "_transcript.txt")
     summary_path = base.with_name(base.name + "_summary.txt")
+    return transcript_path, summary_path
+
+
+def save_outputs(audio: Path, transcript: str, summary: str) -> tuple[Path, Path]:
+    transcript_path, summary_path = output_paths(audio)
     transcript_path.write_text(transcript)
     summary_path.write_text(summary)
     return transcript_path, summary_path
@@ -167,15 +196,22 @@ def markdown_to_html(text: str) -> str:
 
 
 def create_apple_note(title: str, summary_markdown: str) -> None:
+    # A prior AppleEvent timeout can still leave the note created server-side
+    # even though the call reports failure, so skip creation if a note with
+    # this exact title already exists rather than risk a duplicate.
     script = """
     on run argv
         set theTitle to item 1 of argv
         set theBody to item 2 of argv
-        tell application "Notes"
-            tell account "iCloud"
-                make new note at folder "Notes" with properties {name:theTitle, body:theBody}
+        with timeout of 180 seconds
+            tell application "Notes"
+                tell account "iCloud"
+                    if not (exists (notes of folder "Notes" whose name is theTitle)) then
+                        make new note at folder "Notes" with properties {name:theTitle, body:theBody}
+                    end if
+                end tell
             end tell
-        end tell
+        end timeout
     end run
     """
     html_body = f"<b>{title}</b><br><br>" + markdown_to_html(summary_markdown)
@@ -183,6 +219,33 @@ def create_apple_note(title: str, summary_markdown: str) -> None:
         ["osascript", "-e", script, title, html_body],
         check=True,
     )
+
+
+def process_recording(audio: Path) -> None:
+    transcript_path, summary_path = output_paths(audio)
+
+    if transcript_path.exists() and summary_path.exists():
+        print(f"Reusing existing transcript/summary for {audio.name}")
+        summary = summary_path.read_text()
+    else:
+        print(f"Using recording: {audio}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            json_path = run_whisperx(audio, Path(tmp))
+            transcript = build_transcript(json_path)
+
+        if not transcript.strip():
+            sys.exit("Transcription produced no text; aborting.")
+
+        summary = summarize_with_ollama(transcript)
+
+        transcript_path, summary_path = save_outputs(audio, transcript, summary)
+        print(f"Saved transcript to {transcript_path}")
+        print(f"Saved summary to {summary_path}")
+
+    note_title = f"Voice memo summary - {audio.parent.name} {audio.stem}"
+    create_apple_note(note_title, summary)
+    print(f"Created Apple Note: {note_title}")
 
 
 def main():
@@ -194,24 +257,7 @@ def main():
     args = parser.parse_args()
 
     audio = resolve_audio_arg(args.audio) if args.audio else find_most_recent_recording()
-    print(f"Using recording: {audio}")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        json_path = run_whisperx(audio, Path(tmp))
-        transcript = build_transcript(json_path)
-
-    if not transcript.strip():
-        sys.exit("Transcription produced no text; aborting.")
-
-    summary = summarize_with_ollama(transcript)
-
-    transcript_path, summary_path = save_outputs(audio, transcript, summary)
-    print(f"Saved transcript to {transcript_path}")
-    print(f"Saved summary to {summary_path}")
-
-    note_title = f"Voice memo summary - {audio.parent.name} {audio.stem}"
-    create_apple_note(note_title, summary)
-    print(f"Created Apple Note: {note_title}")
+    process_recording(audio)
 
 
 if __name__ == "__main__":
