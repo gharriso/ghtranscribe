@@ -11,6 +11,7 @@ struct Recording: Identifiable, Codable, Equatable {
 
     let id: UUID
     var sourceFilename: String
+    var sourceBookmark: Data?
     var createdAt: Date
     var status: Status
     var transcript: String?

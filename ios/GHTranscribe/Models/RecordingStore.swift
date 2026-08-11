@@ -17,6 +17,7 @@ final class RecordingStore {
         let recording = Recording(
             id: id,
             sourceFilename: fileURL.lastPathComponent,
+            sourceBookmark: try? fileURL.bookmarkData(),
             createdAt: Date(),
             status: .pending
         )
@@ -31,6 +32,38 @@ final class RecordingStore {
     func delete(id: UUID) {
         recordings.removeAll { $0.id == id }
         save()
+    }
+
+    func retry(id: UUID) {
+        guard let recording = recordings.first(where: { $0.id == id }),
+              let bookmark = recording.sourceBookmark
+        else {
+            Task {
+                await update(id: id) {
+                    $0.errorMessage = "Can't retry -- the original file reference was lost. Re-pick it instead."
+                }
+            }
+            return
+        }
+
+        Task {
+            do {
+                var isStale = false
+                let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale)
+                await update(id: id) {
+                    $0.status = .pending
+                    $0.errorMessage = nil
+                    $0.transcript = nil
+                    $0.summaryHTML = nil
+                }
+                await process(id: id, fileURL: url)
+            } catch {
+                await update(id: id) {
+                    $0.status = .failed
+                    $0.errorMessage = "Can't retry -- the original file reference was lost. Re-pick it instead."
+                }
+            }
+        }
     }
 
     private func process(id: UUID, fileURL: URL) async {

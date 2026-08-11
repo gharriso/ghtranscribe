@@ -35,9 +35,15 @@ struct RecordingDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failed:
                 ScrollView {
-                    Text(recording.errorMessage ?? "Something went wrong.")
-                        .foregroundStyle(.red)
-                        .padding()
+                    VStack(spacing: 16) {
+                        Text(recording.errorMessage ?? "Something went wrong.")
+                            .foregroundStyle(.red)
+                        Button("Retry", systemImage: "arrow.clockwise") {
+                            store.retry(id: recording.id)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding()
                 }
             case .done:
                 HTMLView(html: recording.summaryHTML ?? "")

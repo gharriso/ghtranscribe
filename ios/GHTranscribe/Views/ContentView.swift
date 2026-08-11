@@ -18,7 +18,11 @@ struct ContentView: View {
                 }
                 ForEach(store.recordings) { recording in
                     NavigationLink(value: recording.id) {
-                        RecordingRow(recording: recording)
+                        RecordingRow(
+                            recording: recording,
+                            onRetry: { store.retry(id: recording.id) },
+                            onDelete: { store.delete(id: recording.id) }
+                        )
                     }
                 }
                 .onDelete { offsets in
@@ -65,6 +69,8 @@ struct ContentView: View {
 
 private struct RecordingRow: View {
     let recording: Recording
+    let onRetry: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         HStack {
@@ -77,6 +83,16 @@ private struct RecordingRow: View {
             }
             Spacer()
             statusView
+            if recording.status == .failed {
+                Button(action: onRetry) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+            }
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
         }
     }
 
