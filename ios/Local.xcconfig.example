@@ -1,0 +1,3 @@
+// Copy this file to Local.xcconfig (gitignored) and fill in your own team ID
+// to build/run on a physical device. Not needed for Simulator builds.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID

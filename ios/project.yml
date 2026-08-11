@@ -11,6 +11,9 @@ targets:
     deploymentTarget: "17.0"
     sources:
       - path: GHTranscribe
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.guyharrison.ghtranscribe
@@ -22,5 +25,3 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: GHTranscribe
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGNING_ALLOWED: NO

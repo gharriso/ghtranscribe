@@ -34,6 +34,21 @@ Build and run on a simulator or device. On first launch, open Settings
 (gear icon) and paste in an OpenAI API key -- it's stored in the Keychain
 and used only for direct calls to `api.openai.com`.
 
+The generated `.xcodeproj` is gitignored -- it's fully reproducible from
+`project.yml`, so just re-run `xcodegen generate` after pulling changes.
+
+### Running on a physical device
+
+Simulator builds need no signing. For a real device, copy
+`Local.xcconfig.example` to `Local.xcconfig` (gitignored) and set
+`DEVELOPMENT_TEAM` to your Apple Developer team ID, then regenerate:
+
+```
+cp Local.xcconfig.example Local.xcconfig
+# edit Local.xcconfig with your team ID
+xcodegen generate
+```
+
 ## Notes
 
 - No microphone permission is needed -- the app only reads files you pick,
