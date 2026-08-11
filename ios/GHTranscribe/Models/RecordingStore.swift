@@ -55,6 +55,7 @@ final class RecordingStore {
                     $0.errorMessage = nil
                     $0.transcript = nil
                     $0.summaryHTML = nil
+                    $0.transcriptFileNote = nil
                 }
                 await process(id: id, fileURL: url)
             } catch {
@@ -78,6 +79,9 @@ final class RecordingStore {
                 $0.transcript = transcript
                 $0.status = .summarizing
             }
+            await update(id: id) {
+                $0.transcriptFileNote = Self.writeTranscriptSidecar(transcript, besideSourceURL: fileURL)
+            }
             let html = try await OpenAIClient.shared.summarize(transcript: transcript)
             await update(id: id) {
                 $0.summaryHTML = html
@@ -88,6 +92,23 @@ final class RecordingStore {
                 $0.status = .failed
                 $0.errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    /// Writes the transcript beside the original recording as
+    /// "<name>-openai-transcription.txt". Returns nil on success, or a
+    /// user-facing note if the sandbox wouldn't allow it (the transcript is
+    /// still available in-app either way).
+    private static func writeTranscriptSidecar(_ transcript: String, besideSourceURL fileURL: URL) -> String? {
+        do {
+            _ = try CloudFileLoader.writeSidecarFile(
+                transcript,
+                besideSourceURL: fileURL,
+                suffix: "-openai-transcription.txt"
+            )
+            return nil
+        } catch {
+            return "Couldn't save the transcription file next to the recording: \(error.localizedDescription)"
         }
     }
 

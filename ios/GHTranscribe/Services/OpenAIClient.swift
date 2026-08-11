@@ -23,12 +23,14 @@ final class OpenAIClient {
     private let session = URLSession.shared
 
     private static let summaryPrompt = """
-    You summarize transcripts of recorded conversations. Respond with valid HTML only \
-    (no markdown, no code fences, no <html>/<body> wrapper), using only these tags: <b>, \
-    <h2>, <ul>, <li>, <table>, <tr>, <td>, <th>, <br>, <p>. Cover the main topics discussed \
-    and any decisions or action items. Then add an "<h2>Observations</h2>" section with any \
-    comments worth flagging -- open questions, risks, inconsistencies, or follow-ups the \
-    speakers may have missed.
+    You are given the transcript of a recorded conversation. Write a clear, well-organized \
+    summary covering the main topics discussed and any decisions or action items. Then add a \
+    short section titled 'Observations' with any comments you think are worthwhile -- e.g. open \
+    questions, risks, inconsistencies, or follow-ups the speakers may have missed.
+
+    Respond with valid HTML only (no markdown, no code fences, no <html>/<body> wrapper), using \
+    only these tags: <b>, <h2>, <ul>, <li>, <table>, <tr>, <td>, <th>, <br>, <p>. Use \
+    "<h2>Observations</h2>" as that section's heading.
     """
 
     private func apiKey() throws -> String {

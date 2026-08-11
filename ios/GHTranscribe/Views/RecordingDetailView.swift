@@ -46,7 +46,16 @@ struct RecordingDetailView: View {
                     .padding()
                 }
             case .done:
-                HTMLView(html: recording.summaryHTML ?? "")
+                VStack(spacing: 0) {
+                    if let note = recording.transcriptFileNote {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    HTMLView(html: recording.summaryHTML ?? "")
+                }
             }
         }
         .navigationTitle(recording.sourceFilename)

@@ -42,6 +42,44 @@ enum CloudFileLoader {
         return result
     }
 
+    /// Writes text into a new sibling file next to `sourceURL` (e.g. the
+    /// transcription alongside the original recording), using a coordinated
+    /// read+write so the file provider (iCloud Drive) permits creating the
+    /// new document in that directory.
+    static func writeSidecarFile(_ text: String, besideSourceURL sourceURL: URL, suffix: String) throws -> URL {
+        let didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let destinationURL = sourceURL.deletingLastPathComponent().appendingPathComponent("\(baseName)\(suffix)")
+
+        var coordinatorError: NSError?
+        var writeError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(
+            readingItemAt: sourceURL,
+            writingItemAt: destinationURL,
+            error: &coordinatorError
+        ) { _, writeURL in
+            do {
+                try text.write(to: writeURL, atomically: true, encoding: .utf8)
+            } catch {
+                writeError = error
+            }
+        }
+        if let coordinatorError {
+            throw coordinatorError
+        }
+        if let writeError {
+            throw writeError
+        }
+        return destinationURL
+    }
+
     private static func ensureDownloaded(_ url: URL) async throws {
         guard FileManager.default.isUbiquitousItem(at: url) else { return }
         try FileManager.default.startDownloadingUbiquitousItem(at: url)
