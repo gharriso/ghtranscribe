@@ -4,6 +4,7 @@ import Observation
 @Observable
 final class RecordingStore {
     private(set) var recordings: [Recording] = []
+    private(set) var progress: [UUID: RecordingProgress] = [:]
     private let storageURL: URL
 
     init() {
@@ -68,13 +69,26 @@ final class RecordingStore {
     }
 
     private func process(id: UUID, fileURL: URL) async {
+        let startedAt = Date()
+        defer {
+            Task { @MainActor in self.progress[id] = nil }
+        }
         do {
             await update(id: id) { $0.status = .transcribing }
+            await setStage(id: id, .downloading, startedAt: startedAt)
             let audioData = try await CloudFileLoader.loadData(from: fileURL)
+
+            await setStage(id: id, .uploading(fraction: 0), startedAt: startedAt)
             let transcript = try await OpenAIClient.shared.transcribe(
                 audioData: audioData,
                 filename: fileURL.lastPathComponent
-            )
+            ) { [weak self] fraction in
+                guard let self else { return }
+                let stage: RecordingProgress.Stage = fraction >= 0.999
+                    ? .waitingForTranscription
+                    : .uploading(fraction: fraction)
+                Task { @MainActor in self.setStage(id: id, stage, startedAt: startedAt) }
+            }
             await update(id: id) {
                 $0.transcript = transcript
                 $0.status = .summarizing
@@ -82,6 +96,7 @@ final class RecordingStore {
             await update(id: id) {
                 $0.transcriptFileNote = Self.writeTranscriptSidecar(transcript, besideSourceURL: fileURL)
             }
+            await setStage(id: id, .summarizing, startedAt: startedAt)
             let html = try await OpenAIClient.shared.summarize(transcript: transcript)
             await update(id: id) {
                 $0.summaryHTML = html
@@ -93,6 +108,11 @@ final class RecordingStore {
                 $0.errorMessage = error.localizedDescription
             }
         }
+    }
+
+    @MainActor
+    private func setStage(id: UUID, _ stage: RecordingProgress.Stage, startedAt: Date) {
+        progress[id] = RecordingProgress(stage: stage, startedAt: startedAt)
     }
 
     /// Writes the transcript beside the original recording as

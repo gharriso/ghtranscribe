@@ -40,7 +40,11 @@ final class OpenAIClient {
         return key
     }
 
-    func transcribe(audioData: Data, filename: String) async throws -> String {
+    func transcribe(
+        audioData: Data,
+        filename: String,
+        onUploadProgress: @escaping (Double) -> Void = { _ in }
+    ) async throws -> String {
         let key = try apiKey()
 
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/transcriptions")!)
@@ -58,7 +62,8 @@ final class OpenAIClient {
             fileMimeType: "audio/m4a"
         )
 
-        let (data, response) = try await session.data(for: request)
+        let progressDelegate = UploadProgressDelegate(onProgress: onUploadProgress)
+        let (data, response) = try await session.data(for: request, delegate: progressDelegate)
         try Self.checkResponse(response, data: data)
 
         struct TranscriptionResponse: Decodable { let text: String }
@@ -134,5 +139,24 @@ final class OpenAIClient {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw OpenAIError.requestFailed("HTTP \(http.statusCode): \(body)")
         }
+    }
+}
+
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
+    private let onProgress: (Double) -> Void
+
+    init(onProgress: @escaping (Double) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        onProgress(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
     }
 }

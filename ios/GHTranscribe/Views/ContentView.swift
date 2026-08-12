@@ -20,6 +20,7 @@ struct ContentView: View {
                     NavigationLink(value: recording.id) {
                         RecordingRow(
                             recording: recording,
+                            progress: store.progress[recording.id],
                             onRetry: { store.retry(id: recording.id) },
                             onDelete: { store.delete(id: recording.id) }
                         )
@@ -69,6 +70,7 @@ struct ContentView: View {
 
 private struct RecordingRow: View {
     let recording: Recording
+    let progress: RecordingProgress?
     let onRetry: () -> Void
     let onDelete: () -> Void
 
@@ -100,7 +102,11 @@ private struct RecordingRow: View {
     private var statusView: some View {
         switch recording.status {
         case .pending, .transcribing, .summarizing:
-            ProgressView()
+            if let progress {
+                ProgressStageView(progress: progress, compact: true)
+            } else {
+                ProgressView()
+            }
         case .done:
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed:

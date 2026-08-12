@@ -27,10 +27,16 @@ struct RecordingDetailView: View {
         Group {
             switch recording.status {
             case .pending, .transcribing, .summarizing:
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text(statusLabel(for: recording))
-                        .foregroundStyle(.secondary)
+                Group {
+                    if let progress = store.progress[recording.id] {
+                        ProgressStageView(progress: progress)
+                    } else {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text(statusLabel(for: recording))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failed:
