@@ -54,11 +54,17 @@ struct RecordingDetailView: View {
             case .done:
                 VStack(spacing: 0) {
                     if let note = recording.transcriptFileNote {
-                        Text(note)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Button("Retry saving file") {
+                                store.retryTranscriptFileSave(id: recording.id)
+                            }
                             .font(.caption)
-                            .foregroundStyle(.orange)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     HTMLView(html: recording.summaryHTML ?? "")
                 }

@@ -68,6 +68,28 @@ final class RecordingStore {
         }
     }
 
+    /// Re-attempts just the sidecar file write (e.g. after granting folder
+    /// access in Settings), without re-running transcription/summarization.
+    func retryTranscriptFileSave(id: UUID) {
+        guard let recording = recordings.first(where: { $0.id == id }),
+              let transcript = recording.transcript,
+              let bookmark = recording.sourceBookmark
+        else { return }
+
+        Task {
+            do {
+                var isStale = false
+                let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale)
+                let note = Self.writeTranscriptSidecar(transcript, besideSourceURL: url)
+                await update(id: id) { $0.transcriptFileNote = note }
+            } catch {
+                await update(id: id) {
+                    $0.transcriptFileNote = "Couldn't save the transcription file next to the recording: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     private func process(id: UUID, fileURL: URL) async {
         let startedAt = Date()
         defer {

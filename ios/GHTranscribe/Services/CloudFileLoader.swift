@@ -47,10 +47,15 @@ enum CloudFileLoader {
     /// read+write so the file provider (iCloud Drive) permits creating the
     /// new document in that directory.
     static func writeSidecarFile(_ text: String, besideSourceURL sourceURL: URL, suffix: String) throws -> URL {
-        let didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
+        let didStartFileAccess = sourceURL.startAccessingSecurityScopedResource()
+        let coveringFolder = FolderAccessStore.resolvedURL(covering: sourceURL)
+        let didStartFolderAccess = coveringFolder?.startAccessingSecurityScopedResource() ?? false
         defer {
-            if didStartAccessing {
+            if didStartFileAccess {
                 sourceURL.stopAccessingSecurityScopedResource()
+            }
+            if didStartFolderAccess {
+                coveringFolder?.stopAccessingSecurityScopedResource()
             }
         }
 
