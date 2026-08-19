@@ -71,6 +71,32 @@ final class OpenAIClient {
     }
 
     func summarize(transcript: String) async throws -> String {
+        try await chatCompletion(messages: [
+            ["role": "system", "content": Self.summaryPrompt],
+            ["role": "user", "content": transcript],
+        ])
+    }
+
+    /// A single-line title including `date`, derived from the transcript.
+    /// Used when no calendar event overlaps the recording.
+    func generateTitle(transcript: String, date: Date) async throws -> String {
+        let dateString = Self.titleDateFormatter.string(from: date)
+        let prompt = """
+        Write a single-line title (plain text, no quotes, no markdown, under 12 words) for the \
+        recorded conversation below, including the date \(dateString). Capture the main topic.
+
+        Transcript:
+
+        \(transcript.prefix(4000))
+        """
+        let title = try await chatCompletion(
+            messages: [["role": "user", "content": prompt]],
+            maxTokens: 40
+        )
+        return title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func chatCompletion(messages: [[String: String]], maxTokens: Int? = nil) async throws -> String {
         let key = try apiKey()
 
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
@@ -78,13 +104,10 @@ final class OpenAIClient {
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let payload: [String: Any] = [
-            "model": "gpt-4o-mini",
-            "messages": [
-                ["role": "system", "content": Self.summaryPrompt],
-                ["role": "user", "content": transcript],
-            ],
-        ]
+        var payload: [String: Any] = ["model": "gpt-4o-mini", "messages": messages]
+        if let maxTokens {
+            payload["max_tokens"] = maxTokens
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
 
         let (data, response) = try await session.data(for: request)
@@ -103,6 +126,12 @@ final class OpenAIClient {
         }
         return content
     }
+
+    private static let titleDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        return formatter
+    }()
 
     private static func multipartBody(
         boundary: String,

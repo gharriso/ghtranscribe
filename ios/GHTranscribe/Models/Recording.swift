@@ -18,4 +18,5 @@ struct Recording: Identifiable, Codable, Equatable {
     var summaryHTML: String?
     var errorMessage: String?
     var transcriptFileNote: String?
+    var title: String?
 }

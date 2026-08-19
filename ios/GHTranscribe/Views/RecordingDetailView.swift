@@ -66,7 +66,7 @@ struct RecordingDetailView: View {
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    HTMLView(html: recording.summaryHTML ?? "")
+                    HTMLView(html: titledSummaryHTML(for: recording))
                 }
             }
         }
@@ -95,7 +95,7 @@ struct RecordingDetailView: View {
         .sheet(isPresented: $showTranscript) {
             NavigationStack {
                 ScrollView {
-                    Text(recording.transcript ?? "")
+                    Text(titledTranscript(for: recording))
                         .padding()
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -111,9 +111,18 @@ struct RecordingDetailView: View {
     }
 
     private func share(_ recording: Recording) {
-        let html = "<b>\(recording.sourceFilename)</b><br><br>" + (recording.summaryHTML ?? "")
-        shareAttributedString = HTMLRenderer.attributedString(fromHTML: html)
+        shareAttributedString = HTMLRenderer.attributedString(fromHTML: titledSummaryHTML(for: recording))
         isSharePresented = true
+    }
+
+    private func titledSummaryHTML(for recording: Recording) -> String {
+        let title = recording.title ?? recording.sourceFilename
+        return "<h1>\(title)</h1>" + (recording.summaryHTML ?? "")
+    }
+
+    private func titledTranscript(for recording: Recording) -> String {
+        let title = recording.title ?? recording.sourceFilename
+        return "\(title)\n\n\(recording.transcript ?? "")"
     }
 
     private func statusLabel(for recording: Recording) -> String {

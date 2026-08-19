@@ -57,6 +57,7 @@ final class RecordingStore {
                     $0.transcript = nil
                     $0.summaryHTML = nil
                     $0.transcriptFileNote = nil
+                    $0.title = nil
                 }
                 await process(id: id, fileURL: url)
             } catch {
@@ -80,7 +81,11 @@ final class RecordingStore {
             do {
                 var isStale = false
                 let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale)
-                let note = Self.writeTranscriptSidecar(transcript, besideSourceURL: url)
+                let note = Self.writeTranscriptSidecar(
+                    title: recording.title ?? recording.sourceFilename,
+                    transcript: transcript,
+                    besideSourceURL: url
+                )
                 await update(id: id) { $0.transcriptFileNote = note }
             } catch {
                 await update(id: id) {
@@ -115,8 +120,15 @@ final class RecordingStore {
                 $0.transcript = transcript
                 $0.status = .summarizing
             }
+
+            let title = await TitleResolver.resolveTitle(fileURL: fileURL, transcript: transcript)
             await update(id: id) {
-                $0.transcriptFileNote = Self.writeTranscriptSidecar(transcript, besideSourceURL: fileURL)
+                $0.title = title
+                $0.transcriptFileNote = Self.writeTranscriptSidecar(
+                    title: title,
+                    transcript: transcript,
+                    besideSourceURL: fileURL
+                )
             }
             await setStage(id: id, .summarizing, startedAt: startedAt)
             let html = try await OpenAIClient.shared.summarize(transcript: transcript)
@@ -138,13 +150,13 @@ final class RecordingStore {
     }
 
     /// Writes the transcript beside the original recording as
-    /// "<name>-openai-transcription.txt". Returns nil on success, or a
-    /// user-facing note if the sandbox wouldn't allow it (the transcript is
-    /// still available in-app either way).
-    private static func writeTranscriptSidecar(_ transcript: String, besideSourceURL fileURL: URL) -> String? {
+    /// "<name>-openai-transcription.txt", with the title as its first line.
+    /// Returns nil on success, or a user-facing note if the sandbox wouldn't
+    /// allow it (the transcript is still available in-app either way).
+    private static func writeTranscriptSidecar(title: String, transcript: String, besideSourceURL fileURL: URL) -> String? {
         do {
             _ = try CloudFileLoader.writeSidecarFile(
-                transcript,
+                "\(title)\n\n\(transcript)",
                 besideSourceURL: fileURL,
                 suffix: "-openai-transcription.txt"
             )
