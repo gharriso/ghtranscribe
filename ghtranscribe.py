@@ -6,12 +6,15 @@ Usage:
     ghtranscribe.py                  # most recent recording
     ghtranscribe.py <file.m4a>       # specific file (path or bare filename
                                       # searched for inside the JPR folder)
+    ghtranscribe.py --force <file>   # redo even if outputs already exist
 
 Pipeline:
-    1. whisperx transcribes the audio (no speaker diarization yet).
+    1. whisperx transcribes the audio, then diarize.py labels speakers
+       (pyannote, on the GPU; skipped with a warning if it fails).
     2. The transcript is sent to a local Ollama model for a summary
        + notable observations.
-    3. Transcript and summary are written next to the source recording.
+    3. Transcript and summary are written next to the source recording,
+       along with a PDF of the summary.
     4. The summary is saved as a new Apple Note.
 """
 
@@ -48,6 +51,11 @@ WHISPERX_BIN = os.environ.get("WHISPERX_BIN", _default_whisperx_bin())
 WHISPER_MODEL = os.environ.get("WHISPERX_MODEL", "large-v3")
 OLLAMA_MODEL = os.environ.get("GHTRANSCRIBE_OLLAMA_MODEL", "gpt-oss:latest")
 
+DIARIZE = os.environ.get("GHTRANSCRIBE_DIARIZE", "1") != "0"
+DIARIZE_SCRIPT = Path(__file__).resolve().parent / "diarize.py"
+MIN_SPEAKERS = os.environ.get("GHTRANSCRIBE_MIN_SPEAKERS")
+MAX_SPEAKERS = os.environ.get("GHTRANSCRIBE_MAX_SPEAKERS")
+
 SUMMARY_PROMPT = (
     "You are given the transcript of a recorded conversation. "
     "Write a clear, well-organized summary covering the main topics discussed "
@@ -55,6 +63,10 @@ SUMMARY_PROMPT = (
     "Then add a short section titled 'Observations' with any comments you "
     "think are worthwhile -- e.g. open questions, risks, inconsistencies, or "
     "follow-ups the speakers may have missed.\n\n"
+    "If the transcript labels speakers (Speaker 1, Speaker 2, ...), attribute "
+    "points, decisions and action items to the speaker responsible. Where the "
+    "conversation makes it clear who a speaker is (a name, or a role such as "
+    "doctor or patient), say so once and refer to them that way.\n\n"
     "Transcript:\n\n{transcript}"
 )
 
@@ -130,6 +142,30 @@ def run_whisperx(audio: Path, out_dir: Path) -> Path:
     return json_path
 
 
+def run_diarization(audio: Path, json_path: Path) -> None:
+    """Add speaker labels to the whisperx JSON in place.
+
+    Failures are logged and swallowed: an unlabeled transcript is better than
+    the watcher retrying (and failing) the same recording every minute.
+    """
+    venv_python = Path(WHISPERX_BIN).with_name("python3")
+    cmd = [str(venv_python), str(DIARIZE_SCRIPT), str(audio), str(json_path)]
+    if MIN_SPEAKERS:
+        cmd += ["--min-speakers", MIN_SPEAKERS]
+    if MAX_SPEAKERS:
+        cmd += ["--max-speakers", MAX_SPEAKERS]
+
+    env = os.environ.copy()
+    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    result = subprocess.run(cmd, env=env)
+    if result.returncode != 0:
+        print(
+            f"Warning: diarization failed (exit {result.returncode}); "
+            "continuing without speaker labels.",
+            file=sys.stderr,
+        )
+
+
 def format_timestamp(seconds: float) -> str:
     return str(timedelta(seconds=int(seconds)))
 
@@ -138,13 +174,31 @@ def build_transcript(json_path: Path) -> str:
     data = json.loads(json_path.read_text())
     segments = data.get("segments", [])
 
-    lines = []
+    # pyannote labels speakers SPEAKER_00, SPEAKER_01, ... in no useful
+    # order; renumber them by first appearance.
+    speaker_names: dict[str, str] = {}
+    for seg in segments:
+        label = seg.get("speaker")
+        if label and label not in speaker_names:
+            speaker_names[label] = f"Speaker {len(speaker_names) + 1}"
+
+    # Merge consecutive segments from the same speaker into one turn.
+    turns: list[tuple[float | None, str | None, list[str]]] = []
     for seg in segments:
         text = (seg.get("text") or "").strip()
         if not text:
             continue
-        ts = format_timestamp(seg.get("start")) if seg.get("start") is not None else "?"
-        lines.append(f"[{ts}] {text}")
+        speaker = speaker_names.get(seg.get("speaker"))
+        if turns and speaker and turns[-1][1] == speaker:
+            turns[-1][2].append(text)
+        else:
+            turns.append((seg.get("start"), speaker, [text]))
+
+    lines = []
+    for start, speaker, texts in turns:
+        ts = format_timestamp(start) if start is not None else "?"
+        prefix = f"{speaker}: " if speaker else ""
+        lines.append(f"[{ts}] {prefix}{' '.join(texts)}")
 
     return "\n\n".join(lines)
 
@@ -184,6 +238,56 @@ def save_outputs(audio: Path, transcript: str, summary: str) -> tuple[Path, Path
     return transcript_path, summary_path
 
 
+def pdf_path(audio: Path) -> Path:
+    return audio.with_name(audio.stem + "_summary.pdf")
+
+
+PDF_CSS = """
+@page { size: A4; margin: 18mm 15mm; }
+body { font-family: -apple-system, "Helvetica Neue", Helvetica, sans-serif;
+       font-size: 10.5pt; line-height: 1.4; }
+table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
+th, td { border: 1px solid #bbb; padding: 4px 6px; vertical-align: top; }
+th { background: #eee; }
+"""
+
+
+def note_html(title: str, summary_markdown: str) -> str:
+    return f"<b>{title}</b><br><br>" + markdown_to_html(summary_markdown)
+
+
+def create_summary_pdf(path: Path, title: str, summary_markdown: str) -> None:
+    """Render the Apple Note's HTML to a PDF via weasyprint.
+
+    Failures are logged and swallowed so a PDF problem never blocks the note.
+    """
+    weasyprint = Path(WHISPERX_BIN).with_name("weasyprint")
+    # gpt-oss likes narrow no-break spaces ("10 Oct"), which the PDF
+    # fonts have no glyph for and render as nothing.
+    summary_markdown = summary_markdown.replace(" ", " ")
+    html = (
+        f"<!doctype html><html><head><meta charset='utf-8'><title>{title}</title>"
+        f"<style>{PDF_CSS}</style></head><body>"
+        + note_html(title, summary_markdown)
+        + "</body></html>"
+    )
+    env = os.environ.copy()
+    # weasyprint needs Homebrew's pango/cairo, which macOS won't find by default.
+    env["DYLD_FALLBACK_LIBRARY_PATH"] = (
+        "/opt/homebrew/lib:" + env.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+    )
+    result = subprocess.run(
+        [str(weasyprint), "-", str(path)], input=html, text=True, env=env
+    )
+    if result.returncode != 0:
+        print(
+            f"Warning: PDF creation failed (exit {result.returncode}).",
+            file=sys.stderr,
+        )
+    else:
+        print(f"Saved summary PDF to {path}")
+
+
 def markdown_to_html(text: str) -> str:
     result = subprocess.run(
         ["pandoc", "-f", "gfm", "-t", "html"],
@@ -214,17 +318,17 @@ def create_apple_note(title: str, summary_markdown: str) -> None:
         end timeout
     end run
     """
-    html_body = f"<b>{title}</b><br><br>" + markdown_to_html(summary_markdown)
+    html_body = note_html(title, summary_markdown)
     subprocess.run(
         ["osascript", "-e", script, title, html_body],
         check=True,
     )
 
 
-def process_recording(audio: Path) -> None:
+def process_recording(audio: Path, force: bool = False) -> None:
     transcript_path, summary_path = output_paths(audio)
 
-    if transcript_path.exists() and summary_path.exists():
+    if not force and transcript_path.exists() and summary_path.exists():
         print(f"Reusing existing transcript/summary for {audio.name}")
         summary = summary_path.read_text()
     else:
@@ -232,6 +336,8 @@ def process_recording(audio: Path) -> None:
 
         with tempfile.TemporaryDirectory() as tmp:
             json_path = run_whisperx(audio, Path(tmp))
+            if DIARIZE:
+                run_diarization(audio, json_path)
             transcript = build_transcript(json_path)
 
         if not transcript.strip():
@@ -244,6 +350,7 @@ def process_recording(audio: Path) -> None:
         print(f"Saved summary to {summary_path}")
 
     note_title = f"Voice memo summary - {audio.parent.name} {audio.stem}"
+    create_summary_pdf(pdf_path(audio), note_title, summary)
     create_apple_note(note_title, summary)
     print(f"Created Apple Note: {note_title}")
 
@@ -254,10 +361,14 @@ def main():
         "audio", nargs="?", help="Recording to process (path or filename). "
         "Defaults to the most recent recording in Just Press Record."
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-transcribe and re-summarize even if outputs already exist.",
+    )
     args = parser.parse_args()
 
     audio = resolve_audio_arg(args.audio) if args.audio else find_most_recent_recording()
-    process_recording(audio)
+    process_recording(audio, force=args.force)
 
 
 if __name__ == "__main__":

@@ -27,6 +27,13 @@ else
     echo "pandoc already installed: $(command -v pandoc)"
 fi
 
+echo "==> Checking pango (for weasyprint PDF rendering)"
+if ! brew list --formula pango >/dev/null 2>&1; then
+    brew install pango
+else
+    echo "pango already installed"
+fi
+
 echo "==> Checking Ollama"
 if ! command -v ollama >/dev/null 2>&1; then
     brew install ollama
@@ -49,7 +56,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 "$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install whisperx
+"$VENV_DIR/bin/pip" install whisperx weasyprint
 
 cat <<EOF
 
@@ -58,9 +65,10 @@ cat <<EOF
 Notes:
   - whisperx is installed at: $VENV_DIR/bin/whisperx
   - ghtranscribe.py will use it automatically (no PATH changes needed).
-  - Diarization is not yet wired up in ghtranscribe.py, but when it is,
-    you'll need a Hugging Face token with access to the pyannote speaker
-    diarization models, exported as HUGGINGFACE_TOKEN.
+  - Speaker diarization needs a Hugging Face token with access to
+    pyannote/speaker-diarization-community-1 (accept its terms on
+    huggingface.co first). Export it as HUGGINGFACE_TOKEN, and for the
+    launchd watcher also save it to ~/.ghtranscribe/hf_token (chmod 600).
   - The first time ghtranscribe.py creates an Apple Note, macOS will ask
     you to grant your terminal/Claude Code automation access to Notes.
     Approve that prompt (System Settings > Privacy & Security > Automation).
